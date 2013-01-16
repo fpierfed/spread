@@ -33,16 +33,23 @@ class RpcClient(object):
     """
     Generic proxy for distributed PRC servers.
     """
-    def __init__(self):
+    def __init__(self, fast=False):
         """
         Connect to the broker, declare an exclusive queue to hold results of the
         RPC calls and start consuming messages on that queue.
+
+        fast=True implies turning off forcing the blocking connection to stop
+        and look to see if there are any frames from RabbitMQ in the read buffer
+        which means that the client is not expecting RPC commands from the
+        broker (which is generally true for us).
         """
         # Connect
         self.connection = pika.BlockingConnection(pika.ConnectionParameters(
                 host='localhost'))
 
         self.channel = self.connection.channel()
+        if(fast):
+            self.channel.force_data_events(False)
 
         # Create a queue with a default (i.e. random) name to hold results.
         result = self.channel.queue_declare(exclusive=True)
@@ -87,8 +94,17 @@ class RpcClient(object):
 
 
 
-def async_call(fn, argv, cwd=None):
-    client = RpcClient()
+def async_call(fn, argv, cwd=None, fast=False):
+    """
+    Invoke fn(*argv, **kwds) on the remote worker node, where kwds={'cwd': cwd}
+    for now.
+
+    For the meaning of the false flag, see the RpcClient documentation.
+
+    Return an RpcClient instance. Remember that RpcClient implements the
+    Singleton pattern hence all instances are aliases to each other.
+    """
+    client = RpcClient(fast)
 
     client.response = None
     client._rpccall_id = str(uuid.uuid4())

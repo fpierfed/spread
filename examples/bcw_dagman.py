@@ -27,7 +27,8 @@ def run(verbose=False):
                         os.path.join(ROOT,
                                      'data/dataset_001/%s.fits' % (DATASET)),
                         '-o',
-                        '/tmp/%s_' % (DATASET) + '%(ccdId)s.fits'])
+                        '/tmp/%s_' % (DATASET) + '%(ccdId)s.fits'],
+                       fast=True)
     if(verbose):
         print('Enqueued %f' % (time.time()))
 
@@ -50,7 +51,8 @@ def run(verbose=False):
                             '-i',
                             '/tmp/%s_%d.fits' % (DATASET, _id),
                             '-o',
-                            '/tmp/%s_calib_%d.fits' % (DATASET, _id)])
+                            '/tmp/%s_calib_%d.fits' % (DATASET, _id)],
+                           fast=True)
         if(verbose):
             print('Enqueued %f' % (time.time()))
         defers.append(defer)
@@ -79,7 +81,8 @@ def run(verbose=False):
                         '-o',
                         '/tmp/%s_calib.fits' % (DATASET),
                         '-n',
-                        NUM_CCDS])
+                        NUM_CCDS],
+                       fast=True)
     if(verbose):
         print('Enqueued %f' % (time.time()))
 
