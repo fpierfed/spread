@@ -4,7 +4,7 @@ import glob
 
 
 
-NAME = 'spreader'
+NAME = 'spread'
 DESC = 'Spread your code'
 AUTHOR_NAME = 'Francesco Pierfederici'
 AUTHOR_EMAIL = 'fpierfed@gmail.com'
