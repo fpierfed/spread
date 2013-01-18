@@ -23,7 +23,7 @@ def _exec(argv, environment, getenv, cwd, timeout, kill_after):
     terminated_t = None
     res = {'exit_code': None, 'stdout': None, 'stderr': None, 'argv': argv,
            'hostname': 'localhost', 'start_time': None, 'exec_time': None,
-           'terminated': False}
+           'terminated': False, 'cwd': cwd}
 
     start_time = time.time()
     res['start_time'] = start_time
@@ -58,24 +58,79 @@ def _exec(argv, environment, getenv, cwd, timeout, kill_after):
     del(proc)
     return(res)
 
-def system(argv, environment=None, getenv=False, timeout=600, kill_after=10,
-    root_dir='/tmp', cleanup_after_errors=True, cwd=None):
+def system(argv, environment=None, getenv=True, timeout=600, kill_after=10,
+    root_dir=None, cleanup_after_errors=True, cwd=None):
+    """
+    Execute the command line command described by the `argv` list. It is assumed
+    that `argv[0]` is the executable and `argv[1:]`, if non empty, is its
+    argument list.
+
+    `environment`, if not None, is a dictionary specify the env variables for
+    the command to be executed.
+
+    If `getenv` == True then the user environment is inherited by the command
+    being executed. If `getenv` == True and environment is not None, then the
+    user environment is agumented/overridden by key, val pairs in `environment`.
+
+    If `timeout` is a positive integer, it is the amount of seconds after which
+    the command, if has not exited yet, will be sent a SIGTERM.
+
+    If `kill_after` is a positive integer, it is the it is the amount of seconds
+    after `timeout` when the command, if has not exited yet, will be sent a
+    SIGKILL.
+
+    If `root_dir` is not None, it specify the root directory where a temporary
+    directory will be created for the command to execute in. After the command
+    has exited the temporary directory is removed (see also `cwd` and
+    `cleanup_after_errors`).
+
+    If `cleanup_after_errors` == True and the command is either killed or exits
+    with a non 0 status, then the temporary directory (if it was created) is
+    removed, it is kept around otherwise.
+
+    `cwd`, if not None, is the path to the directory where the command is
+    executed from. If defined, it overrides `root_dir` (meaning that no
+    temporary directory is created) and `cleanup_after_errors` is ignored (and
+    no directory or files are ever deleted). If both `cwd` and `root_dir` are
+    None, then it is assumed `cwd` = os.getcwd().
+
+    Return a result dictionary describing the results of the command execution:
+        {'exit_code':   <integer>,
+         'stdout':      <str>,
+         'stderr':      <str>,
+         'argv':        <list>,
+         'hostname':    <str>,
+         'start_time':  <float>,
+         'exec_time':   <float>,
+         'terminated':  <bool>,
+         'cwd':         <str>}
+    """
     # Stringify argv.
     argv = map(unicode, argv)
 
-    # Create a temp work dir and cd into it.
+    # Create a temp work dir and cd into it, assuming cwd is None.
     here = os.getcwd()
-    work_dir = _mkworkdir(root_dir)
+    created_word_dir = False
+    if(cwd):
+        work_dir = cwd
+    elif(root_dir):
+        work_dir = _mkworkdir(root_dir)
+        created_word_dir = True
+    else:
+        work_dir = here
     os.chdir(work_dir)
 
-    res = _exec(argv, environment, getenv, cwd, timeout, kill_after)
+    res = _exec(argv, environment, getenv, work_dir, timeout, kill_after)
 
     # Cleanup after yourselves!
     os.chdir(here)
     failed = res['exit_code'] != 0 or res['terminated']
-    if(failed and not cleanup_after_errors):
-        msg = 'Process exited with errors/was terminated. Work directory %s ' +\
-              'not removed.'
+
+    if(not created_word_dir or not cleanup_after_errors):
+        if(failed):
+            msg = 'Process exited with errors/was terminated. Work ' + \
+                  'directory %s not removed.' % (work_dir)
+            print(msg)
     else:
         _rmworkdir(work_dir)
     return(res)

@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import os
 import sys
+import tempfile
 import time
 
 from spread.client import async_call
@@ -9,25 +10,30 @@ from spread.client import async_call
 
 
 ROOT = '/usr/local/scratch'
-PROC_MEF = os.path.join(ROOT, 'bcw', 'processMef.py')
-PROC_SIF = os.path.join(ROOT, 'bcw', 'processSif.py')
-FINISH_MEF = os.path.join(ROOT, 'bcw', 'finishMef.py')
+PROC_MEF = os.path.join(ROOT, 'bin', 'processMef.py')
+PROC_SIF = os.path.join(ROOT, 'bin', 'processSif.py')
+FINISH_MEF = os.path.join(ROOT, 'bin', 'finishMef.py')
 CMD = '%s -i %s -o %s'
 DATASET = 'raw-000001'
-NUM_CCDS = 4
+DATA_ROOT = '/usr/local/scratch/data/dataset_001'
+NUM_CCDS = len([l for l in open(os.path.join(DATA_ROOT, DATASET + '.fits')).readlines() if l.strip()])
+
 
 
 
 def run(verbose=False):
+    scratch_dir = tmpdir = tempfile.mkdtemp(dir='/tmp')
+
     if(verbose):
         print('Enqueueing PROC_MEF (time: %f)' % (time.time()))
     defer = async_call('system',
                        [PROC_MEF,
                         '-i',
-                        os.path.join(ROOT,
-                                     'data/dataset_001/%s.fits' % (DATASET)),
+                        os.path.join(DATA_ROOT, '%s.fits' % (DATASET)),
                         '-o',
-                        '/tmp/%s_' % (DATASET) + '%(ccdId)s.fits'],
+                        '%s_' % (DATASET) + '%(ccdId)s.fits'],
+                        {'cwd': scratch_dir,
+                         'getenv': True},
                        fast=True)
     if(verbose):
         print('Enqueued %f' % (time.time()))
@@ -49,9 +55,11 @@ def run(verbose=False):
         defer = async_call('system',
                            [PROC_SIF,
                             '-i',
-                            '/tmp/%s_%d.fits' % (DATASET, _id),
+                            '%s_%d.fits' % (DATASET, _id),
                             '-o',
-                            '/tmp/%s_calib_%d.fits' % (DATASET, _id)],
+                            '%s_calib_%d.fits' % (DATASET, _id)],
+                           {'cwd': res['cwd'],
+                            'getenv': True},
                            fast=True)
         if(verbose):
             print('Enqueued %f' % (time.time()))
@@ -77,11 +85,13 @@ def run(verbose=False):
     defer = async_call('system',
                        [FINISH_MEF,
                         '-i',
-                         '/tmp/%s_calib_' % (DATASET) + '%(ccdId)s.fits',
+                         '%s_calib_' % (DATASET) + '%(ccdId)s.fits',
                         '-o',
-                        '/tmp/%s_calib.fits' % (DATASET),
+                        '%s_calib.fits' % (DATASET),
                         '-n',
                         NUM_CCDS],
+                       {'cwd': res['cwd'],
+                        'getenv': True},
                        fast=True)
     if(verbose):
         print('Enqueued %f' % (time.time()))
@@ -93,6 +103,8 @@ def run(verbose=False):
         print(res)
     if(res['terminated'] or res['exit_code'] != 0):
         return(res['exit_code'])
+
+    print('BCW terminated normally. Results in %s' % (scratch_dir))
     return(0)
 
 

@@ -48,7 +48,8 @@ class RpcClient(object):
                 host='localhost'))
 
         self.channel = self.connection.channel()
-        if(fast):
+        self._fast = fast
+        if(self._fast):
             self.channel.force_data_events(False)
 
         # Create a queue with a default (i.e. random) name to hold results.
@@ -78,15 +79,8 @@ class RpcClient(object):
             self.connection.process_data_events()
         return
 
-    def call(self, fn, argv, cwd=None):
-        self.response = None
-        self._rpccall_id = str(uuid.uuid4())
-        self.channel.basic_publish(exchange='',
-                                   routing_key=QUEUE_NAME,
-                                   properties=pika.BasicProperties(
-                                         reply_to = self.callback_queue,
-                                         correlation_id = self._rpccall_id),
-                                   body=json.dumps([fn, argv, {'cwd': cwd}]))
+    def call(self, fn, argv, kwds):
+        _ = async_call(fn, argv, kwds, client=self)
         while self.response is None:
             self.connection.process_data_events()
         return(self.response)
@@ -94,7 +88,7 @@ class RpcClient(object):
 
 
 
-def async_call(fn, argv, cwd=None, fast=False):
+def async_call(fn, argv=None, kwds=None, client=None, fast=False):
     """
     Invoke fn(*argv, **kwds) on the remote worker node, where kwds={'cwd': cwd}
     for now.
@@ -104,7 +98,13 @@ def async_call(fn, argv, cwd=None, fast=False):
     Return an RpcClient instance. Remember that RpcClient implements the
     Singleton pattern hence all instances are aliases to each other.
     """
-    client = RpcClient(fast)
+    if(argv is None):
+        argv = []
+    if(kwds is None):
+        kwds = {}
+
+    if(client is None):
+        client = RpcClient(fast)
 
     client.response = None
     client._rpccall_id = str(uuid.uuid4())
@@ -113,7 +113,7 @@ def async_call(fn, argv, cwd=None, fast=False):
                                properties=pika.BasicProperties(
                                      reply_to = client.callback_queue,
                                      correlation_id = client._rpccall_id),
-                               body=json.dumps([fn, argv, {'cwd': cwd}]))
+                               body=json.dumps([fn, argv, kwds]))
     return(client)
 
 
