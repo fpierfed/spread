@@ -14,10 +14,17 @@ from spread.client import async_call
 
 
 
+# Copy the three BCW scripts to CODE_ROOT/bin/
 CODE_ROOT = '/usr/local/scratch'
+# Copy the BCW data file to DATA_ROOT/
 DATA_ROOT = '/usr/local/scratch/data/dataset_001'
+# Results and intermediate files will be stored in a temporary dir created in
+# WORK_ROOT.
 WORK_ROOT = '/tmp'
+# Name of the machine running RabbitMQ.
+BROKER_HOST = 'localhost'
 
+# These should probably be left alone, unless you know what you are doing.
 PROC_MEF = os.path.join(CODE_ROOT, 'bin', 'processMef.py')
 PROC_SIF = os.path.join(CODE_ROOT, 'bin', 'processSif.py')
 FINISH_MEF = os.path.join(CODE_ROOT, 'bin', 'finishMef.py')
@@ -31,7 +38,7 @@ NUM_CCDS = len([l for l in open(os.path.join(DATA_ROOT, DATASET + '.fits')).read
 
 
 def system(argv, **kwds):
-    return(async_call('system', argv, kwds, fast=True))
+    return(async_call('system', argv, kwds, fast=True, host=BROKER_HOST))
 
 
 def run(verbose=False):
@@ -53,6 +60,7 @@ def run(verbose=False):
     if(verbose):
         print(res)
     if(res['terminated'] or res['exit_code'] != 0):
+        print('BCW terminated with an error.')
         return(res['exit_code'])
 
     results = {}
@@ -83,6 +91,7 @@ def run(verbose=False):
     if(verbose):
         print(results)
     if(err):
+        print('BCW terminated with an error.')
         return(err)
 
     if(verbose):
@@ -101,6 +110,7 @@ def run(verbose=False):
     if(verbose):
         print(res)
     if(res['terminated'] or res['exit_code'] != 0):
+        print('BCW terminated with an error.')
         return(res['exit_code'])
 
     print('BCW terminated normally. Results in %s' % (scratch_dir))
@@ -114,11 +124,18 @@ if(__name__ == '__main__'):
     if(len(sys.argv) == 2 and sys.argv[1] == '-v'):
         verbose = True
 
+    if(verbose):
+        print('Using RabbitMQ broker running on %s' % (BROKER_HOST))
+        print('BCW scripts in %s' % (os.path.join(CODE_ROOT, 'bin')))
+        print('BCW data file(s) in %s' % (DATA_ROOT))
+        print('')
+
     t0 = time.time()
     err = run(verbose)
     t1 = time.time()
 
     if(verbose):
+        print('')
         print('Started:  %f' % (t0))
         print('Ended:    %f' % (t1))
         print('Duration: %f' % (t1 - t0))

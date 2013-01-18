@@ -33,7 +33,7 @@ class RpcClient(object):
     """
     Generic proxy for distributed PRC servers.
     """
-    def __init__(self, fast=False):
+    def __init__(self, host='localhost', fast=False):
         """
         Connect to the broker, declare an exclusive queue to hold results of the
         RPC calls and start consuming messages on that queue.
@@ -45,7 +45,7 @@ class RpcClient(object):
         """
         # Connect
         self.connection = pika.BlockingConnection(pika.ConnectionParameters(
-                host='localhost'))
+                host=host))
 
         self.channel = self.connection.channel()
         self._fast = fast
@@ -88,7 +88,8 @@ class RpcClient(object):
 
 
 
-def async_call(fn, argv=None, kwds=None, client=None, fast=False):
+def async_call(fn, argv=None, kwds=None, client=None, host='localhost',
+    fast=False):
     """
     Invoke fn(*argv, **kwds) on the remote worker node, where kwds={'cwd': cwd}
     for now.
@@ -104,7 +105,7 @@ def async_call(fn, argv=None, kwds=None, client=None, fast=False):
         kwds = {}
 
     if(client is None):
-        client = RpcClient(fast)
+        client = RpcClient(host=host, fast=fast)
 
     client.response = None
     client._rpccall_id = str(uuid.uuid4())

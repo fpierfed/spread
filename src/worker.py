@@ -2,8 +2,10 @@
 import collections
 import functools
 import json
+import logging
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -14,6 +16,10 @@ import pika
 
 
 
+HOSTNAME = socket.gethostname()
+logging.basicConfig(level=logging.CRITICAL)
+
+
 def _exec(argv, environment, getenv, cwd, timeout, kill_after):
     """
     System call with timeout. Return the process info dictionary. We assume we
@@ -22,7 +28,7 @@ def _exec(argv, environment, getenv, cwd, timeout, kill_after):
     # pylint: disable=E1101
     terminated_t = None
     res = {'exit_code': None, 'stdout': None, 'stderr': None, 'argv': argv,
-           'hostname': 'localhost', 'start_time': None, 'exec_time': None,
+           'hostname': HOSTNAME, 'start_time': None, 'exec_time': None,
            'terminated': False, 'cwd': cwd}
 
     start_time = time.time()
@@ -199,8 +205,17 @@ def on_request(ch, method, props, body):
 
 
 if(__name__ == '__main__'):
+    try:
+        broker_host = sys.argv[1]
+    except:
+        print(' [i] No broker hostname specified, using localhost.')
+        print(' [i] You can specify a hostname for the message broker as ' + \
+              'first argument to this')
+        print(' [i] script e.g. ./worker.py machine.example.com')
+        broker_host = 'localhost'
+
     connection = pika.BlockingConnection(pika.ConnectionParameters(
-        host='localhost'))
+        host=broker_host))
     channel = connection.channel()
     channel.queue_declare(queue='rpc_queue')
 
