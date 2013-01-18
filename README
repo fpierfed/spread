@@ -1,3 +1,19 @@
 Spreader
 
-Simple distributed RPC queue. Requires RabbitMQ.
+Simple distributed RPC queue.
+
+Spread is a distributed system to run command-line scripts in parallel. It aims
+at being extremely fast and extremely simple. At the moment it assumes that it
+is either operated in single machine mode (where multiple worker processes all
+run on the same machine) or in multiple-machine, shared filesystem mode, where
+workers run on different machines but have access to the same paths for input,
+output files as well as executables. In other words, Spread does not transfer
+files between machines. Support for multiple machines not sharing filesystems will
+come in a future release.
+
+See the example directory for working sample code.
+
+Requirements:
+    Python 2.7 or later
+    RabbitMQ
+    pika Python module
