@@ -1,4 +1,9 @@
 #!/usr/bin/env python
+"""
+Basic Calibration Workflow
+
+Please see the README file in this directory for help.
+"""
 import os
 import sys
 import tempfile
@@ -9,32 +14,36 @@ from spread.client import async_call
 
 
 
-ROOT = '/usr/local/scratch'
-PROC_MEF = os.path.join(ROOT, 'bin', 'processMef.py')
-PROC_SIF = os.path.join(ROOT, 'bin', 'processSif.py')
-FINISH_MEF = os.path.join(ROOT, 'bin', 'finishMef.py')
+CODE_ROOT = '/usr/local/scratch'
+DATA_ROOT = '/usr/local/scratch/data/dataset_001'
+WORK_ROOT = '/tmp'
+
+PROC_MEF = os.path.join(CODE_ROOT, 'bin', 'processMef.py')
+PROC_SIF = os.path.join(CODE_ROOT, 'bin', 'processSif.py')
+FINISH_MEF = os.path.join(CODE_ROOT, 'bin', 'finishMef.py')
 CMD = '%s -i %s -o %s'
 DATASET = 'raw-000001'
-DATA_ROOT = '/usr/local/scratch/data/dataset_001'
 NUM_CCDS = len([l for l in open(os.path.join(DATA_ROOT, DATASET + '.fits')).readlines() if l.strip()])
 
 
 
 
+
+
+def system(argv, **kwds):
+    return(async_call('system', argv, kwds, fast=True))
+
+
 def run(verbose=False):
-    scratch_dir = tmpdir = tempfile.mkdtemp(dir='/tmp')
+    scratch_dir = tmpdir = tempfile.mkdtemp(dir=WORK_ROOT)
 
     if(verbose):
         print('Enqueueing PROC_MEF (time: %f)' % (time.time()))
-    defer = async_call('system',
-                       [PROC_MEF,
-                        '-i',
-                        os.path.join(DATA_ROOT, '%s.fits' % (DATASET)),
-                        '-o',
-                        '%s_' % (DATASET) + '%(ccdId)s.fits'],
-                        {'cwd': scratch_dir,
-                         'getenv': True},
-                       fast=True)
+
+    ifile = os.path.join(DATA_ROOT, '%s.fits' % (DATASET))
+    ofile = '%s_' % (DATASET) + '%(ccdId)s.fits'
+    defer = system(argv=[PROC_MEF, '-i', ifile, '-o', ofile],
+                   cwd=scratch_dir, getenv=True)
     if(verbose):
         print('Enqueued %f' % (time.time()))
 
@@ -52,15 +61,11 @@ def run(verbose=False):
     for _id in range(NUM_CCDS):
         if(verbose):
             print('Enqueueing PROC_SIF (time: %f)' % (time.time()))
-        defer = async_call('system',
-                           [PROC_SIF,
-                            '-i',
-                            '%s_%d.fits' % (DATASET, _id),
-                            '-o',
-                            '%s_calib_%d.fits' % (DATASET, _id)],
-                           {'cwd': res['cwd'],
-                            'getenv': True},
-                           fast=True)
+
+        ifile = '%s_%d.fits' % (DATASET, _id)
+        ofile = '%s_calib_%d.fits' % (DATASET, _id)
+        defer = system(argv=[PROC_SIF, '-i', ifile, '-o', ofile],
+                       cwd=res['cwd'], getenv=True)
         if(verbose):
             print('Enqueued %f' % (time.time()))
         defers.append(defer)
@@ -82,17 +87,11 @@ def run(verbose=False):
 
     if(verbose):
         print('Enqueueing FINISH_MEF (time: %f)' % (time.time()))
-    defer = async_call('system',
-                       [FINISH_MEF,
-                        '-i',
-                         '%s_calib_' % (DATASET) + '%(ccdId)s.fits',
-                        '-o',
-                        '%s_calib.fits' % (DATASET),
-                        '-n',
-                        NUM_CCDS],
-                       {'cwd': res['cwd'],
-                        'getenv': True},
-                       fast=True)
+
+    ifile = '%s_calib_' % (DATASET) + '%(ccdId)s.fits'
+    ofile = '%s_calib.fits' % (DATASET)
+    defer = system(argv=[FINISH_MEF, '-i', ifile, '-o', ofile, '-n', NUM_CCDS],
+                   cwd=res['cwd'], getenv=True)
     if(verbose):
         print('Enqueued %f' % (time.time()))
 

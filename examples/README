@@ -1,0 +1,25 @@
+Basic Calibration Workflow
+
+This implementation of the BCW makes use of the Spread module, which in turn
+leverages the RabbitMQ message bus.
+
+To execute this example, one needs to at the verly least edit the CODE_ROOT and
+DATA_ROOT constants defined in bcw_dagman.py. In addition, one needs at least
+three terminal windows and a minimal setup:
+    0. Copy the three BCW scripts to CODE_ROOT/bin and the datafile to DATA_ROOT
+        shell> cp finishMef.py processMef.py processSif.py <CODE_ROOT>/bin/
+        shell> cp raw-000001.fits <DATA_ROOT>/
+    1. in one terminal window, start RabbitMQ
+        shell> <rabbitmq install root>/sbin/rabbitmq-server
+    2. in another terminal window, start a Spread worker
+        shell> <spread install or source root>/worker.py
+    3. in a third terminal window, execute bcw_dagman.py
+        shell> ./bcw_dagman.py
+Things start to get interesting when one starts more than one worker process on
+the same machine as work will be distributed to the active workers.
+
+Note: the current system only works in single-machine mode or in a multi-node
+setup assuming that all machines share WORK_ROOT, DATA_ROOT and CODE_ROOT.
+
+Support for multiple nodes not sharing filesystems will be included in a next
+Spread release.
