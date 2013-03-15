@@ -16,11 +16,32 @@ import pika
 
 
 
+# Constants
 HOSTNAME = socket.gethostname()
 logging.basicConfig(level=logging.CRITICAL)
+UPDATED_CLASSAD = '''JobState=Running
+JobPid=%(pid)d
+NumPids=1
+JobStartDate=%(start_time)d
+RemoteSysCpu=0.00
+RemoteUserCpu=%(exec_time).02f
+ImageSize=0.00'''
+EXITED_CLASSAD = '''JobState=Exited
+JobPid=%(pid)d
+NumPids=1
+JobStartDate=%(start_time)d
+RemoteSysCpu=0.00
+RemoteUserCpu=%(exec_time).02f
+ImageSize=0.00
+ExitReason=exited
+ExitBySignal=%(terminated)s
+ExitSignal=%(signal)s
+ExitCode=%(exit_code)d
+JobDuration=%(exec_time).02f'''
 
 
-def _exec(argv, environment, getenv, cwd, timeout, kill_after):
+
+def _exec(argv, stdin_str, environment, getenv, cwd, timeout, kill_after):
     """
     System call with timeout. Return the process info dictionary. We assume we
     are already in the right directory and that argv is a list of strings.
@@ -29,15 +50,24 @@ def _exec(argv, environment, getenv, cwd, timeout, kill_after):
     terminated_t = None
     res = {'exit_code': None, 'stdout': None, 'stderr': None, 'argv': argv,
            'hostname': HOSTNAME, 'start_time': None, 'exec_time': None,
-           'terminated': False, 'cwd': cwd}
+           'terminated': False, 'signal': None, 'cwd': cwd, 'pid': None}
+
+    stdin = None
+    if(stdin_str):
+        stdin = tempfile.SpooledTemporaryFile()
+        stdin.write(stdin_str)
+        stdin.seek(0)
 
     start_time = time.time()
     res['start_time'] = start_time
     proc = subprocess.Popen(argv,
                             stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE,
+                            stdin=stdin,
                             env=_setup_environment(getenv, environment),
                             cwd=cwd)
+    if(stdin_str):
+        stdin.close()
 
     while(proc.poll() is None):
         if(timeout > 0 and time.time() - start_time >= timeout):
@@ -56,6 +86,7 @@ def _exec(argv, environment, getenv, cwd, timeout, kill_after):
             msg = '%s still executing after %s s since SIGTERM. Sending SIGKILL'
             proc.kill()
 
+    res['pid'] = proc.pid
     res['exit_code'] = proc.returncode
     res['stdout'] = proc.stdout.read()
     proc.stdout.close()
@@ -65,7 +96,9 @@ def _exec(argv, environment, getenv, cwd, timeout, kill_after):
     return(res)
 
 def system(argv, environment=None, getenv=True, timeout=600, kill_after=10,
-    root_dir=None, cleanup_after_errors=True, cwd=None):
+    root_dir=None, cleanup_after_errors=True, cwd=None,
+    pre_proc=None, update_proc=None, post_proc=None, update_interval=1,
+    classad=None):
     """
     Execute the command line command described by the `argv` list. It is assumed
     that `argv[0]` is the executable and `argv[1:]`, if non empty, is its
@@ -100,6 +133,23 @@ def system(argv, environment=None, getenv=True, timeout=600, kill_after=10,
     no directory or files are ever deleted). If both `cwd` and `root_dir` are
     None, then it is assumed `cwd` = os.getcwd().
 
+    `pre_proc`, `post_proc` and `update_proc` if not None specify scripts to
+    execute, just before, just after and every `update_interval` seconds while
+    `argv` is running. Each of these three scripts, if defined, receives in
+    STDIN the job `classad`. The `update_proc` script receives as commend-line
+    argument a string describing how the commend exited. Valid values are
+    (exit, remove, hold, evict). Right now we only support exit.
+
+    `classad` if not None is the textual rapresentation of the full Condor
+    ClassAd for the job being executed. If at least one of the three `pre_proc`,
+    `post_proc` and `update_proc` is defined, then `classad` has to be defined.
+
+    Typical use of the *_proc scripts is to create and update database entries
+    relative to the job being executed, e.g. in a blackboard architecture. The
+    output of these scripts is simply ignored, just like their exit code. One
+    exception is the exit code of the `proc_job`: if non 0, the other *_proc
+    scripts are not executed.
+
     Return a result dictionary describing the results of the command execution:
         {'exit_code':   <integer>,
          'stdout':      <str>,
@@ -111,6 +161,8 @@ def system(argv, environment=None, getenv=True, timeout=600, kill_after=10,
          'terminated':  <bool>,
          'cwd':         <str>}
     """
+    # TODO: Support redirection of STDOUT, STDERR and STDIN for the proc job.
+
     # Stringify argv.
     argv = map(unicode, argv)
 
@@ -126,7 +178,30 @@ def system(argv, environment=None, getenv=True, timeout=600, kill_after=10,
         work_dir = here
     os.chdir(work_dir)
 
-    res = _exec(argv, environment, getenv, work_dir, timeout, kill_after)
+    # Pre
+    pre_res = {}
+    if(pre_proc and classad):
+        print('PRE')
+        pre_res = _exec([pre_proc, ], classad, environment, getenv, work_dir,
+                        timeout, kill_after)
+        print('PRE DONE')
+
+    # Proc
+    print('PROC')
+    res = _exec(argv, None, environment, getenv, work_dir, timeout, kill_after)
+    print('PROC DONE')
+
+    # Update
+    # TODO: Implement update_proc
+
+    # Post, only if pre_proc exited OK or was not defined. Also agument the
+    # classad with process-related info.
+    if(post_proc and pre_res.get('exit_code', 0) == 0 and classad):
+        print('POST')
+        classad += EXITED_CLASSAD % res
+        post_res = _exec([post_proc, 'exit'], classad, environment, getenv,
+                         work_dir, timeout, kill_after)
+        print('POST DONE')
 
     # Cleanup after yourselves!
     os.chdir(here)
