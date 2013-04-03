@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import collections
+import datetime
 import functools
 import json
 import logging
@@ -41,14 +42,15 @@ JobDuration=%(exec_time).02f'''
 
 
 
-def _exec(argv, stdin_str, environment, getenv, cwd, timeout, kill_after):
+def _exec(argv, stdin_str, stdout_filename, stderr_filename, environment,
+    getenv, cwd, timeout, kill_after):
     """
     System call with timeout. Return the process info dictionary. We assume we
     are already in the right directory and that argv is a list of strings.
     """
     # pylint: disable=E1101
     terminated_t = None
-    res = {'exit_code': None, 'stdout': None, 'stderr': None, 'argv': argv,
+    res = {'exit_code': None, 'stdout': '', 'stderr': '', 'argv': argv,
            'hostname': HOSTNAME, 'start_time': None, 'exec_time': None,
            'terminated': False, 'signal': None, 'cwd': cwd, 'pid': None}
 
@@ -57,14 +59,27 @@ def _exec(argv, stdin_str, environment, getenv, cwd, timeout, kill_after):
         stdin = tempfile.SpooledTemporaryFile()
         stdin.write(stdin_str)
         stdin.seek(0)
+    stdout_file = None
+    if(stdout_filename):
+        try:
+            stdout_file = open(stdout_filename, 'w')
+        except:
+            pass
+    stderr_file = None
+    if(stderr_filename):
+        try:
+            stderr_file = open(stderr_filename, 'w')
+        except:
+            pass
 
     start_time = time.time()
+    cmd_env = _setup_environment(getenv, environment)
     res['start_time'] = start_time
     proc = subprocess.Popen(argv,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
+                            stdout=stdout_file,
+                            stderr=stderr_file,
                             stdin=stdin,
-                            env=_setup_environment(getenv, environment),
+                            env=cmd_env,
                             cwd=cwd)
     if(stdin_str):
         stdin.close()
@@ -88,17 +103,17 @@ def _exec(argv, stdin_str, environment, getenv, cwd, timeout, kill_after):
 
     res['pid'] = proc.pid
     res['exit_code'] = proc.returncode
-    res['stdout'] = proc.stdout.read()
-    proc.stdout.close()
-    res['stderr'] = proc.stderr.read()
-    proc.stderr.close()
+    if(stdout_file):
+        stdout_file.close()
+    if(stderr_file):
+        stderr_file.close()
     del(proc)
     return(res)
 
 def system(argv, environment=None, getenv=True, timeout=600, kill_after=10,
     root_dir=None, cleanup_after_errors=True, cwd=None,
     pre_proc=None, update_proc=None, post_proc=None, update_interval=1,
-    classad=None):
+    classad=None, output=None, error=None, input=None, retries=3):
     """
     Execute the command line command described by the `argv` list. It is assumed
     that `argv[0]` is the executable and `argv[1:]`, if non empty, is its
@@ -144,6 +159,11 @@ def system(argv, environment=None, getenv=True, timeout=600, kill_after=10,
     ClassAd for the job being executed. If at least one of the three `pre_proc`,
     `post_proc` and `update_proc` is defined, then `classad` has to be defined.
 
+    `inout`, `output` and `error`, if defined, are the names of text files to be
+    used for stream redirection. These can ba absolute paths or relative paths.
+    In the latter case, they are assumed to be relative to `cwd` or `work_dir`,
+    whichever is defined.
+
     Typical use of the *_proc scripts is to create and update database entries
     relative to the job being executed, e.g. in a blackboard architecture. The
     output of these scripts is simply ignored, just like their exit code. One
@@ -161,7 +181,13 @@ def system(argv, environment=None, getenv=True, timeout=600, kill_after=10,
          'terminated':  <bool>,
          'cwd':         <str>}
     """
-    # TODO: Support redirection of STDOUT, STDERR and STDIN for the proc job.
+    if(retries is None or retries < 0):
+        retries = 0
+    else:
+        try:
+            retries = int(retries)
+        except:
+            retries = 0
 
     # Stringify argv.
     argv = map(unicode, argv)
@@ -178,18 +204,58 @@ def system(argv, environment=None, getenv=True, timeout=600, kill_after=10,
         work_dir = here
     os.chdir(work_dir)
 
+    if(input):
+        input = os.path.abspath(input)
+    else:
+        input = None
+    if(output):
+        output = os.path.abspath(output)
+    else:
+        output = None
+    if(error):
+        error = os.path.abspath(error)
+    else:
+        error = None
+
     # Pre
     pre_res = {}
     if(pre_proc and classad):
-        print('PRE')
-        pre_res = _exec([pre_proc, ], classad, environment, getenv, work_dir,
-                        timeout, kill_after)
-        print('PRE DONE')
+        print(' [.] %s - running PRE job (%s)' \
+            % (str(datetime.datetime.utcnow()), pre_proc))
+        pre_res = _exec(argv=[pre_proc, ],
+                        stdin_str=classad,
+                        stdout_filename=None,
+                        stderr_filename=None,
+                        environment=environment,
+                        getenv=getenv,
+                        cwd=work_dir,
+                        timeout=timeout,
+                        kill_after=kill_after)
+        print(' [.] %s - PRE DONE (exit code: %d)' \
+            % (str(datetime.datetime.utcnow()), pre_res['exit_code']))
 
     # Proc
-    print('PROC')
-    res = _exec(argv, None, environment, getenv, work_dir, timeout, kill_after)
-    print('PROC DONE')
+    print(' [.] %s - running PROC job (%s)' \
+        %(str(datetime.datetime.utcnow()), ' '.join(argv)))
+    proc_error = True
+    while(retries >= 0 and proc_error):
+        res = _exec(argv=argv,
+                    stdin_str=None,
+                    stdout_filename=output,
+                    stderr_filename=error,
+                    # stdout_filename=None,
+                    # stderr_filename=None,
+                    environment=environment,
+                    getenv=getenv,
+                    cwd=work_dir,
+                    timeout=timeout,
+                    kill_after=kill_after)
+        proc_error = res['exit_code'] != 0
+        if(proc_error):
+            retries -= 1
+            time.sleep(.1)
+    print(' [.] %s - PROC DONE (exit code: %d)' \
+        % (str(datetime.datetime.utcnow()), res['exit_code']))
 
     # Update
     # TODO: Implement update_proc
@@ -197,11 +263,20 @@ def system(argv, environment=None, getenv=True, timeout=600, kill_after=10,
     # Post, only if pre_proc exited OK or was not defined. Also agument the
     # classad with process-related info.
     if(post_proc and pre_res.get('exit_code', 0) == 0 and classad):
-        print('POST')
+        print(' [.] %s - running POST job (%s)' \
+            %(str(datetime.datetime.utcnow()), post_proc))
         classad += EXITED_CLASSAD % res
-        post_res = _exec([post_proc, 'exit'], classad, environment, getenv,
-                         work_dir, timeout, kill_after)
-        print('POST DONE')
+        post_res = _exec(argv=[post_proc, 'exit'],
+                         stdin_str=classad,
+                         stdout_filename=None,
+                         stderr_filename=None,
+                         environment=environment,
+                         getenv=getenv,
+                         cwd=work_dir,
+                         timeout=timeout,
+                         kill_after=kill_after)
+        print(' [.] %s - POST DONE (exit code: %d)' \
+            % (str(datetime.datetime.utcnow()), post_res['exit_code']))
 
     # Cleanup after yourselves!
     os.chdir(here)
@@ -267,7 +342,7 @@ def _failed_del_warn(function, path, excinfo):
 def on_request(ch, method, props, body):
     [fn, argv, kwds] = json.loads(body)
 
-    print " [.] %s(%s)"  % (fn, ', '.join([unicode(arg) for arg in argv]))
+    # print " [.] %s(%s)"  % (fn, ', '.join([unicode(arg) for arg in argv]))
     response = getattr(sys.modules[__name__], fn)(argv, **kwds)
 
     ch.basic_publish(exchange='',
