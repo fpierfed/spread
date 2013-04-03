@@ -94,7 +94,7 @@ def async_call(fn, argv=None, kwds=None, client=None, host='localhost',
     Invoke fn(*argv, **kwds) on the remote worker node, where kwds={'cwd': cwd}
     for now.
 
-    For the meaning of the false flag, see the RpcClient documentation.
+    For the meaning of the fast flag, see the RpcClient documentation.
 
     Return an RpcClient instance. Remember that RpcClient implements the
     Singleton pattern hence all instances are aliases to each other.
